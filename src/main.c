@@ -28,8 +28,12 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 
 #include "resource_dir.h"	// utility header for SearchAndSetResourceDir
 
+#include "client.h"
+
 int main ()
 {
+	initWSA();
+
 	// Tell the window to use vysnc and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
 
@@ -67,5 +71,7 @@ int main ()
 
 	// destory the window and cleanup the OpenGL context
 	CloseWindow();
+
+	clean();
 	return 0;
 }
