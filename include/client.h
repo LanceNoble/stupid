@@ -1,4 +1,3 @@
 #pragma once
-void initWSA();
-void search();
+int init();
 void clean();

@@ -8,24 +8,24 @@ SOCKET sock;
 struct addrinfo* serverAddr;
 struct addrinfo hints = { .ai_family = AF_INET,.ai_socktype = SOCK_STREAM,.ai_protocol = IPPROTO_TCP };
 
-void initWSA() {
+int init() {
 	WSADATA wsaData;
 	int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (res != 0) {
 		printf("WSAStartup fail: %d\n", res);
-		exit(1);
+		return 1;
 	}
-}
-
-void search() {
-	int res = getaddrinfo("localhost", "30000", &hints, &serverAddr);
+	res = getaddrinfo("localhost", "30000", &hints, &serverAddr);
 	if (res != 0) {
 		printf("getaddrinfo fail: %d\n", res);
 		WSACleanup();
-		exit(1);
+		return 1;
 	}
+	return 0;
 }
 
 void clean() {
+	closesocket(sock);
+	freeaddrinfo(serverAddr);
 	WSACleanup();
 }
