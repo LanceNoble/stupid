@@ -33,6 +33,7 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 int main ()
 {
 	initWSA();
+	search();
 
 	// Tell the window to use vysnc and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
