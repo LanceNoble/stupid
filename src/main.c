@@ -54,13 +54,25 @@ int main ()
 		BeginDrawing();
 
 		// Setup the backbuffer for drawing (clear color and depth buffers)
-		ClearBackground(BLACK);
+		ClearBackground(GRAY);
 
 		// draw some text using the default font
-		DrawText("Hello Raylib", 200,200,20,WHITE);
+		DrawText("Multiplayer Test", 0, 0, 64, BLACK);
+
+		Color colBut = BLACK;
+		Color colTxtBut = WHITE;
+		if (GetMouseX() > 560 && GetMouseX() < 720 && GetMouseY() > 350 && GetMouseY() < 450) {
+			colBut = WHITE;
+			colTxtBut = BLACK;
+		}
+		const char* text = "Join";
+		int fontSize = 64;
+		DrawRectangle(560, 350, 160, 100, colBut);
+		DrawText(text, 640 - MeasureText(text, fontSize) / 2, 370, fontSize, colTxtBut);
+
 
 		// draw our texture to the screen
-		DrawTexture(wabbit, 400, 200, WHITE);
+		// DrawTexture(wabbit, 400, 200, WHITE);
 		
 		// end the frame and get ready for the next one  (display frame, poll input, etc...)
 		EndDrawing();
