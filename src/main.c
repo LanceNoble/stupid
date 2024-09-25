@@ -29,11 +29,11 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 #include "resource_dir.h"	// utility header for SearchAndSetResourceDir
 
 #include "client.h"
+#include "stdio.h"
 
 int main ()
 {
-	//init();
-
+	init();
 
 	// Tell the window to use vysnc and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
@@ -47,6 +47,7 @@ int main ()
 	// Load a texture from the resources directory
 	Texture wabbit = LoadTexture("wabbit_alpha.png");
 	
+	Color colStatus = GRAY;
 	// game loop
 	while (!WindowShouldClose())		// run the loop untill the user presses ESCAPE or presses the Close button on the window
 	{
@@ -69,6 +70,13 @@ int main ()
 		int fontSize = 64;
 		DrawRectangle(560, 350, 160, 100, colBut);
 		DrawText(text, 640 - MeasureText(text, fontSize) / 2, 370, fontSize, colTxtBut);
+		if (GetMouseX() > 560 && GetMouseX() < 720 && GetMouseY() > 350 && GetMouseY() < 450 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+			colStatus = BLACK;
+		}
+
+		const char* textStatus = "Joining...";
+		int szTxtStat = 32;
+		DrawText(textStatus, 640 - MeasureText(textStatus, 32) / 2, 600, szTxtStat, colStatus);
 
 
 		// draw our texture to the screen
@@ -85,6 +93,6 @@ int main ()
 	// destory the window and cleanup the OpenGL context
 	CloseWindow();
 
-	//clean();
+	clean();
 	return 0;
 }
