@@ -30,10 +30,11 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 
 #include "client.h"
 #include "stdio.h"
+#include <time.h>
 
 int main ()
 {
-	init();
+	int res = init();
 
 	// Tell the window to use vysnc and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
@@ -47,7 +48,7 @@ int main ()
 	// Load a texture from the resources directory
 	Texture wabbit = LoadTexture("wabbit_alpha.png");
 	
-	Color colStatus = GRAY;
+	int joined = 0;
 	// game loop
 	while (!WindowShouldClose())		// run the loop untill the user presses ESCAPE or presses the Close button on the window
 	{
@@ -55,33 +56,36 @@ int main ()
 		BeginDrawing();
 
 		// Setup the backbuffer for drawing (clear color and depth buffers)
-		ClearBackground(GRAY);
+		ClearBackground(BLACK);
 
-		// draw some text using the default font
-		DrawText("Multiplayer Test", 0, 0, 64, BLACK);
-
-		Color colBut = BLACK;
-		Color colTxtBut = WHITE;
-		if (GetMouseX() > 560 && GetMouseX() < 720 && GetMouseY() > 350 && GetMouseY() < 450) {
-			colBut = WHITE;
-			colTxtBut = BLACK;
-		}
-		const char* text = "Join";
-		int fontSize = 64;
-		DrawRectangle(560, 350, 160, 100, colBut);
-		DrawText(text, 640 - MeasureText(text, fontSize) / 2, 370, fontSize, colTxtBut);
-		if (GetMouseX() > 560 && GetMouseX() < 720 && GetMouseY() > 350 && GetMouseY() < 450 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-			colStatus = BLACK;
+		if (res != 0) {
+			DrawText("Multiplayer Disabled: Failed to init WSA", 0, 0, 32, WHITE);
+			goto drawEnd;
 		}
 
-		const char* textStatus = "Joining...";
-		int szTxtStat = 32;
-		DrawText(textStatus, 640 - MeasureText(textStatus, 32) / 2, 600, szTxtStat, colStatus);
+		DrawRectangle(560, 350, 160, 100, WHITE);
+		if (GetMouseX() > 560 && GetMouseX() < 720 &&
+			GetMouseY() > 350 && GetMouseY() < 450 &&
+			IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+			if (!joined) {
+				DrawText("JOINING", 0, 0, 32, WHITE);
+				int resJoin = join("localhost", "30000");
+				if (resJoin == 0)
+					joined = 1;
+			}
+			else {
+				DrawText("LEAVING", 0, 0, 32, WHITE);
+				if (leave() == 0)
+					joined = 0;
+			}
+		}
 
+		if (!joined) 
+			DrawText("DISCONNECTED: Click on the button to JOIN", 0, 0, 32, WHITE);
+		else
+			DrawText("CONNECTED: Click on the button to LEAVE", 0, 0, 32, WHITE);
 
-		// draw our texture to the screen
-		// DrawTexture(wabbit, 400, 200, WHITE);
-		
+	drawEnd:
 		// end the frame and get ready for the next one  (display frame, poll input, etc...)
 		EndDrawing();
 	}
