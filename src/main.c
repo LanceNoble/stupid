@@ -29,12 +29,14 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 #include "resource_dir.h"	// utility header for SearchAndSetResourceDir
 
 #include "client.h"
-#include "stdio.h"
+#include <stdio.h>
 #include <time.h>
 
 int main ()
 {
-	int res = init();
+	int initwsares = initwsa();
+	int joined = 0;
+	int players[3] = { 0, 0, 0 };
 
 	// Tell the window to use vysnc and work on high DPI displays
 	SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_HIGHDPI);
@@ -48,7 +50,6 @@ int main ()
 	// Load a texture from the resources directory
 	Texture wabbit = LoadTexture("wabbit_alpha.png");
 	
-	int joined = 0;
 	// game loop
 	while (!WindowShouldClose())		// run the loop untill the user presses ESCAPE or presses the Close button on the window
 	{
@@ -58,34 +59,85 @@ int main ()
 		// Setup the backbuffer for drawing (clear color and depth buffers)
 		ClearBackground(BLACK);
 
-		if (res != 0) {
-			DrawText("Multiplayer Disabled: Failed to init WSA", 0, 0, 32, WHITE);
-			goto drawEnd;
+		if (joined) goto game;
+
+		DrawText("Multiplayer Test", 0, 0, 64, WHITE);
+		if (initwsares != 0) {
+			DrawText("Multiplayer Disabled: WSA Init Fail", 0, 64, 32, WHITE);
+			goto end;
 		}
 
-		DrawRectangle(560, 350, 160, 100, WHITE);
-		if (GetMouseX() > 560 && GetMouseX() < 720 &&
-			GetMouseY() > 350 && GetMouseY() < 450 &&
+		// Button
+		DrawRectangle(640 - (MeasureText("JOIN", 64) + 64) / 2, 400 - 32, MeasureText("JOIN", 64) + 64, 64, WHITE);
+		DrawText("JOIN", 640 - MeasureText("JOIN", 64) / 2, 400 - 32, 64, BLACK);
+		if (GetMouseX() > 640 - (MeasureText("JOIN", 64) + 64) / 2 &&
+			GetMouseX() < 640 + (MeasureText("JOIN", 64) + 64) / 2 &&
+			GetMouseY() > 400 - 32 &&
+			GetMouseY() < 400 + 32 &&
 			IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-			if (!joined) {
-				DrawText("JOINING", 0, 0, 32, WHITE);
-				int resJoin = join("localhost", "30000");
-				if (resJoin == 0)
-					joined = 1;
-			}
-			else {
-				DrawText("LEAVING", 0, 0, 32, WHITE);
-				if (leave() == 0)
-					joined = 0;
-			}
+			int pipe[4];
+			int data[5];
+			join("73.119.107.1", "3490", pipe, data);
+			for (int i = 2, j = 0; i < 5; i++) { players[j] = data[i]; j++; }
+			printf("%i, %i, %i", players[0], players[1], players[2]);
+			for (int i = 0; i < 4; i++) if (pipe[i] != 0) return 1;
+			joined = 1;
 		}
 
-		if (!joined) 
-			DrawText("DISCONNECTED: Click on the button to JOIN", 0, 0, 32, WHITE);
-		else
-			DrawText("CONNECTED: Click on the button to LEAVE", 0, 0, 32, WHITE);
+		if (!joined) goto end;
+		int data[5] = { 0,0,0,0,0 };
+	game:
+		sync(data);
+		//printf("%lu, %lu, %lu\n\n", players[0], players[1], players[2]);
+		if (data[0] == 0) {
+			DrawText("Disconnected", 0, 0, 64, WHITE);
+			leave();
+			joined = 0;
+			goto end;
+		}
+		else if (data[0] == 1 && data[1] == 0) {
+			//printf("received\n");
+			for (int i = 2, j = 0; i < 5; i++) { 
+				players[j] = data[i]; 
+				j++; 
+			}
+		}
+		else if (data[1] == 1) {
+			for (int i = 0; i < 3; i++) {
+				if (players[i] == 0) { 
+					players[i] = data[2]; 
+					break; 
+				}
+			}
+		}
+			
+		else if (data[1] == 2) {
+			for (int i = 0; i < 3; i++) {
+				if (players[i] == data[2]) { 
+					players[i] = 0; 
+					break; 
+				}
+			}
+		}
+			//printf("received\n");
+		
 
-	drawEnd:
+		int y = 0;
+		for (int i = 0; i < 3; i++) {
+			if (players[i] != 0) { DrawText(TextFormat("Player %i", players[i]), 0, y, 32, WHITE); y += 32; }
+		}
+
+		DrawRectangle(640 - (MeasureText("LEAVE", 64) + 64) / 2, 400 - 32, MeasureText("LEAVE", 64) + 64, 64, WHITE);
+		DrawText("LEAVE", 640 - MeasureText("LEAVE", 64) / 2, 400 - 32, 64, BLACK);
+		if (GetMouseX() > 640 - (MeasureText("LEAVE", 64) + 64) / 2 &&
+			GetMouseX() < 640 + (MeasureText("LEAVE", 64) + 64) / 2 &&
+			GetMouseY() > 400 - 32 &&
+			GetMouseY() < 400 + 32 &&
+			IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+			leave();
+			joined = 0;
+		}
+	end:
 		// end the frame and get ready for the next one  (display frame, poll input, etc...)
 		EndDrawing();
 	}

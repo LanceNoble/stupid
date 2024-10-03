@@ -1,87 +1,88 @@
 #include "client.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <stdio.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
-#define JOIN "0"
-#define LEAVE "1"
+#define MAX_PLAYERS 3
+#define E12B 000000000000
+#define F12B 111111111111
+#define E8B  00000000
+#define F8B  11111111
 
-SOCKET sock;
-struct addrinfo* serverAddr;
-struct addrinfo hintsTCP = { .ai_family = AF_INET,.ai_socktype = SOCK_STREAM,.ai_protocol = IPPROTO_TCP };
-struct addrinfo hintsUDP = { .ai_family = AF_INET,.ai_socktype = SOCK_DGRAM,.ai_protocol = IPPROTO_UDP };
-char recvBuf[8];
+#define STRIP_CONNECTION_STATUS(cs, type, id1, id2, id3) \
+	type = (cs & 0b11000000) >> 6;						 \
+	id1  = (cs & 0b00110000) >> 4;						 \
+	id2  = (cs & 0b00001100) >> 2;						 \
+	id3  =  cs & 0b00000011;
 
-static int con() {
-	int res;
-	sock = socket(serverAddr->ai_family, serverAddr->ai_socktype, serverAddr->ai_protocol);
-	if (sock == INVALID_SOCKET) {
-		printf("socket fail\n");
-		return WSAGetLastError();
-	}
-	if (connect(sock, serverAddr->ai_addr, serverAddr->ai_addrlen) == SOCKET_ERROR) {
-		printf("connect fail\n");
-		res = WSAGetLastError();
-		closesocket(sock);
-		return res;
-	}
-	return 0;
-}
+// Construct player position
+// b[0]	    - sign
+//	      0 - negative
+//		  1 - positive
+// b[1-11]  - x coord of player 1
+// b[12]    - sign
+//        0 - negative
+//        1 - positive
+// b[13-23] - y coord of player 1
+#define BUILD_PLAYER_POSITION(spx, px, spy, py) (spx << 23) | (px << 12) | (spy << 11) | py
 
-static int dis() {
-	shutdown(sock, SD_SEND);
-	closesocket(sock);
-	return 0;
-}
+// Split a 24-bit player position into 3 bytes
+#define CHUNK_PLAYER_POSITION(pp, buf) \
+	buf[0] == pp & 0b## F8B##E8B##E8B  \
+	buf[1] == pp & 0b##      F8B##E8B  \
+    buf[2] == pp & 0b##           F8B
 
-int init() {
-	int res;
+// Reattach a 24-bit player position that's been split into 3 bytes
+#define GLUE_PLAYER_POSITION(int24, buf) int24 = (buf[0] << 16) | (buf[1] << 8) | buf[2]
+
+#define STRIP_PLAYER_POSITION(pp, x, y) \
+	x = pp & (0b##F12B << 12);          \
+	y = pp &  0b##F12B;                 
+
+#define STRIP_COORDINATE(coord, sign, num) \
+	sign = coord & 0b100000000000;		   \
+	num  = coord & 0b011111111111;		   
+
+SOCKET guest;
+struct addrinfo* addr;
+
+int initwsa() {
 	WSADATA wsaData;
-	if (res = WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
-		return res;
-	return 0;
+	return WSAStartup(MAKEWORD(2, 2), &wsaData);
 }
 
-int join(const char* ip, const char* port) {
-	char recvBuf[8];
-	int res = 0;
-	if (res = getaddrinfo(ip, port, &hintsTCP, &serverAddr) != 0)
-		return 1;
-	if (res = con() != 0)
-		return 2;
-	if (res = send(sock, JOIN, 1, 0) == SOCKET_ERROR)
-		return 3;
-	if (res = recv(sock, recvBuf, 8, 0) == SOCKET_ERROR)
-		return 4;
-	if (res = recvBuf[0] != '0')
-		return 5;
-	dis();
-	return 0;
+void join(char* ip, char* port, int pipe[4], int data[5]) {
+	u_long mode = 1;
+	struct addrinfo hints;
+	ZeroMemory(&hints, sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	pipe[0] = getaddrinfo(ip, port, &hints, &addr);
+	guest = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+	pipe[1] = WSAGetLastError();
+	connect(guest, addr->ai_addr, addr->ai_addrlen);
+	pipe[2] = WSAGetLastError();
+	sync(data);
+	ioctlsocket(guest, FIONBIO, &mode);
+	pipe[3] = WSAGetLastError();
 }
 
-int getclinum() {
-
+void sync(int data[5]) {
+	int buf[1] = { 0 };
+	data[0] = recv(guest, buf, 1, 0);
+	data[1] = STRIP_CONNECTION_STATUS(buf[0], 00000011, 0);
+	data[2] = STRIP_CONNECTION_STATUS(buf[0], 00001100, 2);
+	data[3] = STRIP_CONNECTION_STATUS(buf[0], 00110000, 4);
+	data[4] = STRIP_CONNECTION_STATUS(buf[0], 11000000, 6);
 }
 
-int leave() {
-	int res = 0;
-	freeaddrinfo(serverAddr);
-	if (res = con() != 0)
-		return 1;
-	if (res = send(sock, LEAVE, 1, 0) == SOCKET_ERROR)
-		return 2;
-	if (res = recv(sock, recvBuf, 8, 0) == SOCKET_ERROR)
-		return 3;
-	if (res = recvBuf[0] != '1')
-		return 4;
-	dis();
-	return 0;
+void leave() {
+	closesocket(guest);
 }
 
 void clean() {
-	closesocket(sock);
-	freeaddrinfo(serverAddr);
+	freeaddrinfo(addr);
 	WSACleanup();
 }
