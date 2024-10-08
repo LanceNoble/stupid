@@ -1,88 +1,125 @@
 #include "client.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <math.h>
+#include <stdio.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
-#define MAX_PLAYERS 3
-#define E12B 000000000000
-#define F12B 111111111111
-#define E8B  00000000
-#define F8B  11111111
+SOCKET sguestTCP;
+SOCKET sguestUDP;
+struct addrinfo* addrTCP;
+struct addrinfo* addrUDP;
 
-#define STRIP_CONNECTION_STATUS(cs, type, id1, id2, id3) \
-	type = (cs & 0b11000000) >> 6;						 \
-	id1  = (cs & 0b00110000) >> 4;						 \
-	id2  = (cs & 0b00001100) >> 2;						 \
-	id3  =  cs & 0b00000011;
-
-// Construct player position
-// b[0]	    - sign
-//	      0 - negative
-//		  1 - positive
-// b[1-11]  - x coord of player 1
-// b[12]    - sign
-//        0 - negative
-//        1 - positive
-// b[13-23] - y coord of player 1
-#define BUILD_PLAYER_POSITION(spx, px, spy, py) (spx << 23) | (px << 12) | (spy << 11) | py
-
-// Split a 24-bit player position into 3 bytes
-#define CHUNK_PLAYER_POSITION(pp, buf) \
-	buf[0] == pp & 0b## F8B##E8B##E8B  \
-	buf[1] == pp & 0b##      F8B##E8B  \
-    buf[2] == pp & 0b##           F8B
-
-// Reattach a 24-bit player position that's been split into 3 bytes
-#define GLUE_PLAYER_POSITION(int24, buf) int24 = (buf[0] << 16) | (buf[1] << 8) | buf[2]
-
-#define STRIP_PLAYER_POSITION(pp, x, y) \
-	x = pp & (0b##F12B << 12);          \
-	y = pp &  0b##F12B;                 
-
-#define STRIP_COORDINATE(coord, sign, num) \
-	sign = coord & 0b100000000000;		   \
-	num  = coord & 0b011111111111;		   
-
-SOCKET guest;
-struct addrinfo* addr;
-
-int initwsa() {
+void initwsa() {
+	int res;
 	WSADATA wsaData;
-	return WSAStartup(MAKEWORD(2, 2), &wsaData);
+	res = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (res != 0)
+		exit(res);
 }
 
-void join(char* ip, char* port, int pipe[4], int data[5]) {
+void join(char* ip, char* port, struct player players[MAX_PLAYERS]) {
 	u_long mode = 1;
+	int res;
 	struct addrinfo hints;
 	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;
+
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
-	pipe[0] = getaddrinfo(ip, port, &hints, &addr);
-	guest = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
-	pipe[1] = WSAGetLastError();
-	connect(guest, addr->ai_addr, addr->ai_addrlen);
-	pipe[2] = WSAGetLastError();
-	sync(data);
-	ioctlsocket(guest, FIONBIO, &mode);
-	pipe[3] = WSAGetLastError();
+	res = getaddrinfo(ip, port, &hints, &addrTCP);
+	if (res != 0)
+		exit(res);
+	sguestTCP = socket(addrTCP->ai_family, addrTCP->ai_socktype, addrTCP->ai_protocol);
+	if (sguestTCP == INVALID_SOCKET)
+		exit(WSAGetLastError());
+
+	res = connect(sguestTCP, addrTCP->ai_addr, addrTCP->ai_addrlen);
+	if (res == SOCKET_ERROR)
+		exit(WSAGetLastError());
+	res = ioctlsocket(sguestTCP, FIONBIO, &mode);
+	if (res == SOCKET_ERROR)
+		exit(WSAGetLastError());
+
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_protocol = IPPROTO_UDP;
+	res = getaddrinfo(ip, port, &hints, &addrUDP);
+	if (res != 0)
+		exit(res);
+	sguestUDP = socket(addrUDP->ai_family, addrUDP->ai_socktype, addrUDP->ai_protocol);
+	if (sguestUDP == INVALID_SOCKET)
+		exit(WSAGetLastError());
+
+	res = ioctlsocket(sguestUDP, FIONBIO, &mode);
+	if (res == SOCKET_ERROR)
+		exit(WSAGetLastError());
+
+	ZeroMemory(players, sizeof(*players) * MAX_PLAYERS);
+
 }
 
-void sync(int data[5]) {
-	int buf[1] = { 0 };
-	data[0] = recv(guest, buf, 1, 0);
-	data[1] = STRIP_CONNECTION_STATUS(buf[0], 00000011, 0);
-	data[2] = STRIP_CONNECTION_STATUS(buf[0], 00001100, 2);
-	data[3] = STRIP_CONNECTION_STATUS(buf[0], 00110000, 4);
-	data[4] = STRIP_CONNECTION_STATUS(buf[0], 11000000, 6);
+void recv_tcp(struct player players[MAX_PLAYERS], struct player** you) {
+	union tcp_msg msg;
+	int numBytes = recv(sguestTCP, msg.raw, sizeof(msg), 0);
+	if (numBytes == SOCKET_ERROR)
+		return;
+	if (msg.type == 0) {
+		*you = &(players[msg.target - 1]);
+		(*you)->id = msg.target;
+		(*you)->x = 0;
+		(*you)->y = 0;
+
+		for (int i = 0; i < MAX_PLAYERS - 1; i++) {
+			int mask = pow(2, 2) - 1; 
+			int start = i * 2; 
+			int id = (msg.ids & (mask << start)) >> start;
+			if (id == 0)
+				continue;
+			players[id - 1].id = id;
+			players[id - 1].x = 0;
+			players[id - 1].y = 0;
+		}
+	}
+	if (msg.type == 1) {
+		players[msg.target - 1].id = msg.target;
+		players[msg.target - 1].x = 0;
+		players[msg.target - 1].y = 0;
+	}
+	else if (msg.type == 2)
+		ZeroMemory(&(players[msg.target - 1]), sizeof(players[msg.target - 1]));
+}
+
+void send_udp(struct player* you) {
+	if (you == NULL)
+		return;
+	union udp_msg msg;
+	msg.id = you->id;
+	msg.x = you->x;
+	msg.y = you->y;
+	msg.whole = htonl(msg.whole);
+	int numBytes = sendto(sguestUDP, msg.raw, sizeof(msg), 0, addrUDP->ai_addr, addrUDP->ai_addrlen);
+}
+
+void recv_udp(struct player players[MAX_PLAYERS], struct player* you) {
+	union udp_msg msg;
+	int numBytes = recvfrom(sguestUDP, msg.raw, sizeof(msg), 0, NULL, NULL);
+	if (numBytes == SOCKET_ERROR)
+		return;
+	msg.whole = ntohl(msg.whole);
+	if (msg.id == you->id)
+		return;
+	players[msg.id - 1].x = msg.x;
+	players[msg.id - 1].y = msg.y;
 }
 
 void leave() {
-	closesocket(guest);
+	closesocket(sguestTCP);
+	closesocket(sguestUDP);
 }
 
 void clean() {
-	freeaddrinfo(addr);
+	freeaddrinfo(addrTCP);
+	freeaddrinfo(addrUDP);
 	WSACleanup();
 }
