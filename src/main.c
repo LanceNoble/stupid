@@ -26,11 +26,7 @@ For a C++ project simply rename the file to .cpp and re-run the build script
 
 #include "raylib.h"
 
-#include "resource_dir.h"	// utility header for SearchAndSetResourceDir
-
 #include "client.h"
-#include <stdio.h>
-#include <math.h>
 
 int main ()
 {
@@ -45,12 +41,6 @@ int main ()
 
 	// Create the window and OpenGL context
 	InitWindow(1280, 800, "Hello Raylib");
-
-	// Utility function from resource_dir.h to find the resources folder and set it as the current working directory so we can load from it
-	SearchAndSetResourceDir("resources");
-
-	// Load a texture from the resources directory
-	Texture wabbit = LoadTexture("wabbit_alpha.png");
 	
 	// game loop
 	while (!WindowShouldClose())		// run the loop untill the user presses ESCAPE or presses the Close button on the window
@@ -71,18 +61,28 @@ int main ()
 			GetMouseY() > 400 - 32 &&
 			GetMouseY() < 400 + 32 &&
 			IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-			join("localhost", "3490", players);
+			join("localhost", "3490", players, &you);
 			joined = 1;
 		}
 
 		if (!joined) goto end;
 
 	game:
+		sync(players, &you);
+
 		if (you != NULL) {
-			if (IsKeyDown(KEY_W)) you->y -= 1;
-			if (IsKeyDown(KEY_A)) you->x -= 1;
-			if (IsKeyDown(KEY_S)) you->y += 1;
-			if (IsKeyDown(KEY_D)) you->x += 1;
+			int x = 0;
+			int y = 0;
+			if (IsKeyDown(KEY_W))
+				y -= 2;
+			if (IsKeyDown(KEY_A))
+				x -= 2;
+			if (IsKeyDown(KEY_S))
+				y += 2;
+			if (IsKeyDown(KEY_D))
+				x += 2;
+			if (x != 0 || y != 0)
+				notify(you, x, y);
 		}
 
 		DrawRectangle(1280 - (MeasureText("LEAVE", 64) + 64), 0, MeasureText("LEAVE", 64) + 64, 64, WHITE);
@@ -98,29 +98,20 @@ int main ()
 			goto end;
 		}
 
-		recv_tcp(players, &you);
-		send_udp(you);
-		recv_udp(players, you);
-
 		for (int i = 0; i < MAX_PLAYERS; i++)
 			if (players[i].id != VACANT_PLAYER) 
 				DrawText(TextFormat("Player %i", players[i].id), 0, i * 32, 32, WHITE);
 		for (int i = 0; i < MAX_PLAYERS; i++)
 			if (players[i].id != VACANT_PLAYER)
-				DrawRectangle(players[i].x, players[i].y, 20, 20, WHITE);
-				//DrawTexture(wabbit, players[i].x, players[i].y, WHITE);
+				DrawRectangle(players[i].x, players[i].y, 30, 30, WHITE);
 	end:
+
 		// end the frame and get ready for the next one  (display frame, poll input, etc...)
 		EndDrawing();
 	}
 
-	// cleanup
-	// unload our texture so it can be cleaned up
-	UnloadTexture(wabbit);
-
 	// destory the window and cleanup the OpenGL context
 	CloseWindow();
-
 	clean();
 	return 0;
 }

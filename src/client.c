@@ -1,16 +1,35 @@
+// 10/08/2024
+// This program is the client portion of my attempt at writing netcode
+// 
+// Successful Data Syncs:
+// - List of connected players
+// - Player positions
+// - 
+// 
+// TODO:
+// 1.
+
 #include "client.h"
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include <math.h>
-#include <stdio.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
-SOCKET sguestTCP;
-SOCKET sguestUDP;
-struct addrinfo* addrTCP;
-struct addrinfo* addrUDP;
+SOCKET guest;
 
+union msg {
+	struct {
+		unsigned int type : 2;
+		unsigned int id : 2;
+		signed int xPos : 14;
+		signed int yPos : 14;
+	};
+	int whole;
+	char raw[4];
+};
+
+// Initialize Winsock
 void initwsa() {
 	int res;
 	WSADATA wsaData;
@@ -19,107 +38,101 @@ void initwsa() {
 		exit(res);
 }
 
+// Join a server
 void join(char* ip, char* port, struct player players[MAX_PLAYERS]) {
-	u_long mode = 1;
-	int res;
+	u_long mode = 1; // On switch for activating non-block mode for sockets
+	int status; // Status of every socket operation
+
+	struct addrinfo* addr;
 	struct addrinfo hints;
 	ZeroMemory(&hints, sizeof(hints));
 	hints.ai_family = AF_INET;
 
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
-	res = getaddrinfo(ip, port, &hints, &addrTCP);
-	if (res != 0)
-		exit(res);
-	sguestTCP = socket(addrTCP->ai_family, addrTCP->ai_socktype, addrTCP->ai_protocol);
-	if (sguestTCP == INVALID_SOCKET)
-		exit(WSAGetLastError());
+	status = getaddrinfo(ip, port, &hints, &addr);
+	if (status != 0) {
+		WSACleanup();
+		exit(status);
+	}
 
-	res = connect(sguestTCP, addrTCP->ai_addr, addrTCP->ai_addrlen);
-	if (res == SOCKET_ERROR)
-		exit(WSAGetLastError());
-	res = ioctlsocket(sguestTCP, FIONBIO, &mode);
-	if (res == SOCKET_ERROR)
-		exit(WSAGetLastError());
+	guest = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+	if (guest == INVALID_SOCKET) {
+		status = WSAGetLastError();
+		freeaddrinfo(addr);
+		WSACleanup();
+		exit(status);
+	}
 
-	hints.ai_socktype = SOCK_DGRAM;
-	hints.ai_protocol = IPPROTO_UDP;
-	res = getaddrinfo(ip, port, &hints, &addrUDP);
-	if (res != 0)
-		exit(res);
-	sguestUDP = socket(addrUDP->ai_family, addrUDP->ai_socktype, addrUDP->ai_protocol);
-	if (sguestUDP == INVALID_SOCKET)
-		exit(WSAGetLastError());
+	status = connect(guest, addr->ai_addr, addr->ai_addrlen);
+	if (status == SOCKET_ERROR) {
+		status = WSAGetLastError();
+		closesocket(guest);
+		freeaddrinfo(addr);
+		WSACleanup();
+		exit(status);
+	}
 
-	res = ioctlsocket(sguestUDP, FIONBIO, &mode);
-	if (res == SOCKET_ERROR)
-		exit(WSAGetLastError());
+	// 
+		
+	freeaddrinfo(addr);
 
 	ZeroMemory(players, sizeof(*players) * MAX_PLAYERS);
-
+	status = ioctlsocket(guest, FIONBIO, &mode);
+	if (status == SOCKET_ERROR) {
+		status = WSAGetLastError();
+		closesocket(guest);
+		WSACleanup();
+		exit(status);
+	}
 }
 
-void recv_tcp(struct player players[MAX_PLAYERS], struct player** you) {
-	union tcp_msg msg;
-	int numBytes = recv(sguestTCP, msg.raw, sizeof(msg), 0);
+void sync(struct player players[MAX_PLAYERS], struct player** you) {
+	union msg msg;
+	msg.whole = 0;
+	int numBytes = recv(guest, msg.raw, sizeof(msg), 0);
 	if (numBytes == SOCKET_ERROR)
 		return;
-	if (msg.type == 0) {
-		*you = &(players[msg.target - 1]);
-		(*you)->id = msg.target;
-		(*you)->x = 0;
-		(*you)->y = 0;
 
-		for (int i = 0; i < MAX_PLAYERS - 1; i++) {
-			int mask = pow(2, 2) - 1; 
-			int start = i * 2; 
-			int id = (msg.ids & (mask << start)) >> start;
-			if (id == 0)
-				continue;
-			players[id - 1].id = id;
-			players[id - 1].x = 0;
-			players[id - 1].y = 0;
-		}
+	if (numBytes == 0) {
+		closesocket(guest);
+		WSACleanup();
+		exit(-1);
 	}
+
+	msg.whole = ntohl(msg.whole);
 	if (msg.type == 1) {
-		players[msg.target - 1].id = msg.target;
-		players[msg.target - 1].x = 0;
-		players[msg.target - 1].y = 0;
+		players[msg.id - 1].id = msg.id;
+		players[msg.id - 1].x = msg.xPos;
+		players[msg.id - 1].y = msg.yPos;
+		if (*you == NULL)
+			*you = &(players[msg.id - 1]);
 	}
-	else if (msg.type == 2)
-		ZeroMemory(&(players[msg.target - 1]), sizeof(players[msg.target - 1]));
+	else if (msg.type == 2) 
+		ZeroMemory(&(players[msg.id - 1]), sizeof(players[msg.id - 1]));
+	else if (msg.type == 3) {
+		players[msg.id - 1].x = msg.xPos;
+		players[msg.id - 1].y = msg.yPos;
+	}
 }
 
-void send_udp(struct player* you) {
+void notify(struct player* you, signed int x, signed int y) {
 	if (you == NULL)
 		return;
-	union udp_msg msg;
+	union msg msg;
+	msg.type = 3;
 	msg.id = you->id;
-	msg.x = you->x;
-	msg.y = you->y;
-	msg.whole = htonl(msg.whole);
-	int numBytes = sendto(sguestUDP, msg.raw, sizeof(msg), 0, addrUDP->ai_addr, addrUDP->ai_addrlen);
-}
+	msg.xPos = you->x + x;
+	msg.yPos = you->y + y;
 
-void recv_udp(struct player players[MAX_PLAYERS], struct player* you) {
-	union udp_msg msg;
-	int numBytes = recvfrom(sguestUDP, msg.raw, sizeof(msg), 0, NULL, NULL);
-	if (numBytes == SOCKET_ERROR)
-		return;
-	msg.whole = ntohl(msg.whole);
-	if (msg.id == you->id)
-		return;
-	players[msg.id - 1].x = msg.x;
-	players[msg.id - 1].y = msg.y;
+	msg.whole = htonl(msg.whole);
+	send(guest, msg.raw, sizeof(msg), 0);
 }
 
 void leave() {
-	closesocket(sguestTCP);
-	closesocket(sguestUDP);
+	closesocket(guest);
 }
 
 void clean() {
-	freeaddrinfo(addrTCP);
-	freeaddrinfo(addrUDP);
 	WSACleanup();
 }

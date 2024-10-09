@@ -1,24 +1,10 @@
+// Some RayLib functions have the same name as Windows functions, 
+// So we can't include RayLib and Windows in the same source file
+// So we simply write our client in a separate source file
+// And link its functions to our main source file via a header file
 #pragma once
 #define MAX_PLAYERS 3
 #define VACANT_PLAYER 0
-
-union tcp_msg {
-	struct {
-		unsigned char type : 2;
-		unsigned char target : 2;
-		unsigned char ids : 4;
-	};
-	char raw[1];
-};
-union udp_msg {
-	struct {
-		unsigned int id : 2;
-		signed   int x : 15;
-		signed   int y : 15;
-	};
-	int whole;
-	char raw[4];
-};
 struct player {
 	unsigned int id;
 	signed int x;
@@ -26,8 +12,7 @@ struct player {
 };
 void initwsa();
 void join(char* ip, char* port, struct player players[MAX_PLAYERS]);
-void recv_tcp(struct player players[MAX_PLAYERS], struct player** you);
-void send_udp(struct player* you);
-void recv_udp(struct player players[MAX_PLAYERS], struct player* you);
+void sync(struct player players[MAX_PLAYERS], struct player** you);
+void notify(struct player* you, signed int x, signed int y);
 void leave();
 void clean();
